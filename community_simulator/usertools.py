@@ -13,8 +13,8 @@ import numbers
 
 #DEFAULT PARAMETERS FOR CONSUMER AND METABOLIC MATRICES, AND INITIAL STATE
 a_default = {'sampling':'Binary', #{'Gaussian','Binary','Gamma'} specifies choice of sampling algorithm
-          'SA': 60*np.ones(3), #Number of species in each specialist family (here, 3 families of 60 species)
-          'MA': 30*np.ones(3), #Number of resources in each class 
+          'SA': 6*np.ones(3), #Number of species in each specialist family (here, 3 families of 60 species)
+          'MA': 3*np.ones(3), #Number of resources in each class 
           'Sgen': 30, #Number of generalist species (unbiased sampling over alll resource classes)
           'muc': 10, #Mean sum of consumption rates (used in all models)
           'sigc': 3, #Standard deviation of sum of consumption rates for Gaussian and Gamma models
