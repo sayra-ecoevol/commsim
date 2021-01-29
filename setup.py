@@ -11,7 +11,7 @@ from setuptools import setup
 setup(name='community_simulator',
       version='1.0',
       description='Simulate batch culture experiments on microbial communities.',
-      url='https://github.com/sayra-ecoevol/commsim ',
+      url='https://github.com/sayra-ecoevol/commsim',
       author='Robert Marsland III',
       author_email='robertvsiii@gmail.com',
       license='MIT',
