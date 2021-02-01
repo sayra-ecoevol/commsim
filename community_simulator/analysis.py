@@ -50,28 +50,28 @@ def MakeFlux(assumptions):
     Make function to compute matrix of incoming fluxes as a function of resource
     abundance and parameter dictionary
     """
-    
+
     sigma = {'type I': lambda R,params: params['c']*R,
              'type II': lambda R,params: params['c']*R/(1+params['c']*R/params['K']),
              'type III': lambda R,params: params['c']*(R**params['n'])/(1+params['c']*(R**params['n'])/params['K'])
             }
-    
+
     u = {'independent': lambda x,params: 1.,
          'energy': lambda x,params: (((params['w']*x)**params['nreg']).T
                                       /np.sum((params['w']*x)**params['nreg'],axis=1)).T,
          'mass': lambda x,params: ((x**params['nreg']).T/np.sum(x**params['nreg'],axis=1)).T
         }
-    
+
     J_in = lambda R,params: (u[assumptions['regulation']](params['c']*R,params)
                             *params['w']*sigma[assumptions['response']](R,params))
     return J_in
-                                                
+
 def Susceptibility(N,R,beta,params):
     """
     Compute partial derivatives of steady-state populations N and resource
     abundances R with respect to the supplied energy flux kappa_beta = R0_beta/tau_beta
     """
-    
+
     if type(params['c']) is pd.DataFrame:
         c = params['c'].values
     else:
@@ -83,7 +83,7 @@ def Susceptibility(N,R,beta,params):
     M = len(D)
     l = params['l']
     tau = params['tau']
-    
+
     not_extinct = np.where(N > 0)[0]
     c = c[not_extinct,:]
     S_star = len(not_extinct)
@@ -101,7 +101,7 @@ def Susceptibility(N,R,beta,params):
 
     chi = chieta[:M] #Resource susceptibilities
     eta = chieta[M:] #Species susceptibilities
-    
+
     return chi, eta
 
 def NODF(A):
@@ -109,7 +109,7 @@ def NODF(A):
     Compute the Nestdness metric based on Overlap and Decreasing Fill (NODF) as
     defined in Almeida-Neto et al. (2008).
     """
-    
+
     m,n = np.shape(A)
     Ac = np.ones((n,n))*A.sum(axis=0)
     Ar = np.ones((m,m))*A.T.sum(axis=0)
@@ -117,15 +117,15 @@ def NODF(A):
     Dc = Ac<Ac.T
     B = ((A.T)/(A.T.sum(axis=0))).T
     C = A/A.sum(axis=0)
-    
+
     return 2*(np.trace(A.T.dot(Dr.dot(B)))+np.trace(A.dot(Dc.dot(C.T))))/(n*(n-1)+m*(m-1))
 
 def LotkaVolterra(N,R,params):
     """
-    Compute effective Lotka-Volterra coefficients and carrying capacity for 
+    Compute effective Lotka-Volterra coefficients and carrying capacity for
     dynamics near the fixed point.
     """
-    
+
     if type(params['c']) is pd.DataFrame:
         c = params['c'].values
     else:
@@ -139,15 +139,15 @@ def LotkaVolterra(N,R,params):
     w = params['w']
     tau = params['tau']
     M = len(params['D'])
-    
-    
+
+
     A = -(1/tau+ c.T.dot(N))*np.eye(M) + ((D*((c*l*w).T.dot(N))).T/w).T
     Q = (c*R).T - ((D.dot((c*R*w*l).T)).T/w).T
     dRdN = np.linalg.inv(A).dot(Q)
-    
+
     alpha = -(c*w*(1-l)).dot(dRdN)
     K = alpha.dot(N)
-    
+
     return K, alpha
 
 def validate_simulation(com_in,N0):
@@ -155,7 +155,7 @@ def validate_simulation(com_in,N0):
     Check accuracy, convergence, and noninvadability of community instance com_in.
     N0 indicates which species were present at the beginning of the simulation.
     """
-    
+
     com = com_in.copy()
     failures = np.sum(np.isnan(com.N.iloc[0]))
     survive = com.N>0
@@ -174,5 +174,26 @@ def validate_simulation(com_in,N0):
 
     accuracy = np.max(abs(dlogNdt_survive))
     invaders = np.sum(dlogNdt_extinct>0)
-    
+
     return {'Mean Accuracy':accuracy.mean(),'Std. Dev. Accuracy':accuracy.std(),'Failures':failures,'Invasions':(invaders>0).sum()}
+
+
+def validate_simulation_sa743(com_in,pro_time,iteration):
+    """
+    Check accuracy, convergence, and noninvadability of community instance com_in.
+    N0 indicates which species were present at the beginning of the simulation.
+    """
+    com = com_in.copy()
+    #failures = np.sum(np.isnan(com.N.iloc[0]))
+    survive = com.N>0
+    com.N[survive] = 1
+    if type(com.params) is not list:
+        params_list = [com.params for k in range(len(com.N.T))]
+    else:
+        params_list = com.params
+    dlogNdt_survive = pd.DataFrame(np.asarray(list(map(com.dNdt,com.N.T.values,com.R.T.values,params_list))).T,
+                                   index=com.N.index,columns=com.N.columns)
+    dlogNdt_survive.to_csv(r"dNdt_gen_after"+str(pro_time)+ " for_gen = "+ str(iteration)+".dat", sep='\t')
+    accuracy = np.max(abs(dlogNdt_survive))
+
+    return accuracy.mean()

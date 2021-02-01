@@ -14,7 +14,7 @@ import numbers
 #DEFAULT PARAMETERS FOR CONSUMER AND METABOLIC MATRICES, AND INITIAL STATE
 a_default = {'sampling':'Binary', #{'Gaussian','Binary','Gamma'} specifies choice of sampling algorithm
           'SA': 6*np.ones(3), #Number of species in each specialist family (here, 3 families of 60 species)
-          'MA': 3*np.ones(3), #Number of resources in each class 
+          'MA': 3*np.ones(3), #Number of resources in each class
           'Sgen': 30, #Number of generalist species (unbiased sampling over alll resource classes)
           'muc': 10, #Mean sum of consumption rates (used in all models)
           'sigc': 3, #Standard deviation of sum of consumption rates for Gaussian and Gamma models
@@ -37,7 +37,7 @@ a_default = {'sampling':'Binary', #{'Gaussian','Binary','Gamma'} specifies choic
 def MakeInitialState(assumptions):
     """
     Construct stochastically colonized initial state, at unperturbed resource fixed point.
-    
+
     assumptions = dictionary of metaparameters
         'SA' = number of species in each family
         'MA' = number of resources of each type
@@ -46,7 +46,7 @@ def MakeInitialState(assumptions):
         'S' = initial number of species per well
         'food' = index of supplied "food" resource
         'R0_food' = unperturbed fixed point for supplied food resource
-    
+
     Returns:
     N0 = initial consumer populations
     R0 = initial resource concentrations
@@ -81,7 +81,7 @@ def MakeInitialState(assumptions):
 
     R0 = np.zeros((M,assumptions['n_wells']))
     N0 = np.zeros((S_tot,assumptions['n_wells']))
-    
+
     if not isinstance(assumptions['food'],int):
         assert len(assumptions['food']) == assumptions['n_wells'], 'Length of food vector must equal n_wells.'
         food_list = assumptions['food']
@@ -101,12 +101,12 @@ def MakeInitialState(assumptions):
     N0 = pd.DataFrame(N0,index=consumer_index,columns=well_names)
     R0 = pd.DataFrame(R0,index=resource_index,columns=well_names)
 
-    return N0, R0
+    return N0, R0, M, T, S_tot, F
 
 def MakeMatrices(assumptions):
     """
     Construct consumer matrix and metabolic matrix.
-    
+
     assumptions = dictionary of metaparameters
         'sampling' = {'Gaussian','Binary','Gamma'} specifies choice of sampling algorithm
         'SA' = number of species in each family
@@ -121,7 +121,7 @@ def MakeMatrices(assumptions):
         'fw' = fraction of secretion flux into waste resource type
         'sparsity' = effective sparsity of metabolic matrix (from 0 to 1)
         'wate_type' = index of resource type to designate as "waste"
-    
+
     Returns:
     c = consumer matrix
     D = metabolic matrix
@@ -156,7 +156,7 @@ def MakeMatrices(assumptions):
                       resource_names]
     consumer_index = [[family_names[m] for m in range(F) for k in range(assumptions['SA'][m])]
                       +['GEN' for k in range(assumptions['Sgen'])],consumer_names]
-    
+
     #PERFORM GAUSSIAN SAMPLING
     if assumptions['sampling'] == 'Gaussian':
         #Initialize dataframe:
@@ -175,7 +175,7 @@ def MakeMatrices(assumptions):
             c_mean = assumptions['muc']/M
             c_var = assumptions['sigc']**2/M
             c.loc['GEN'] = c_mean + np.random.randn(assumptions['Sgen'],M)*np.sqrt(c_var)
-                    
+
     #PERFORM BINARY SAMPLING
     elif assumptions['sampling'] == 'Binary':
         assert assumptions['muc'] < M*assumptions['c1'], 'muc not attainable with given M and c1.'
@@ -188,8 +188,8 @@ def MakeMatrices(assumptions):
                     p = (assumptions['muc']/(M*assumptions['c1']))*(1+assumptions['q']*(M-assumptions['MA'][j])/assumptions['MA'][j])
                 else:
                     p = (assumptions['muc']/(M*assumptions['c1']))*(1-assumptions['q'])
-                    
-                c.loc['F'+str(k)]['T'+str(j)] = (c.loc['F'+str(k)]['T'+str(j)].values 
+
+                c.loc['F'+str(k)]['T'+str(j)] = (c.loc['F'+str(k)]['T'+str(j)].values
                                                 + assumptions['c1']*BinaryRandomMatrix(assumptions['SA'][k],assumptions['MA'][j],p))
         #Sample uniform binary random matrix for generalists:
         if 'GEN' in c.index:
@@ -221,6 +221,41 @@ def MakeMatrices(assumptions):
             kc = c_mean**2/c_var
             c.loc['GEN'] = np.random.gamma(kc,scale=thetac,size=(assumptions['Sgen'],M))
         #PERFORM GAUSSIAN SAMPLING
+    elif assumptions['sampling'] == 'Binary_Gamma':
+        assert assumptions['muc'] < M*assumptions['c1'], 'muc not attainable with given M and c1.'
+        #Construct uniform matrix at total background consumption rate c0:
+        c = pd.DataFrame(np.ones((S,M))*assumptions['c0']/M,columns=resource_index,index=consumer_index)
+        #Sample binary random matrix blocks for each pair of family/resource type:
+        for k in range(F):
+            for j in range(T):
+                if k==j:
+                    p = (assumptions['muc']/(M*assumptions['c1']))*(1+assumptions['q']*(M-assumptions['MA'][j])/assumptions['MA'][j])
+                    c_mean = (assumptions['muc']/M)*(1+assumptions['q']*(M-assumptions['MA'][j])/assumptions['MA'][j])
+                    c_var = (assumptions['sigc']**2/M)*(1+assumptions['q']*(M-assumptions['MA'][j])/assumptions['MA'][j])
+                else:
+                    p = (assumptions['muc']/(M*assumptions['c1']))*(1-assumptions['q'])
+                    c_mean = (assumptions['muc']/M)*(1-assumptions['q'])
+                    c_var = (assumptions['sigc']**2/M)*(1-assumptions['q'])
+                c_mean_binary = assumptions['c0']+ assumptions['c1']*p
+                c_var_binary = assumptions['c1']**2 *p*(1-p)
+                c_mean_gamma = c_mean/c_mean_binary
+                c_var_gamma = (c_var - c_var_binary*(c_mean_gamma**2))/(c_var_binary + c_mean_binary**2)
+                thetac = c_var_gamma/c_mean_gamma
+                kc = c_mean_gamma**2/c_var_gamma
+                c.loc['F'+str(k)]['T'+str(j)] = (c.loc['F'+str(k)]['T'+str(j)].values + assumptions['c1']*BinaryRandomMatrix(assumptions['SA'][k],assumptions['MA'][j],p))*np.random.gamma(kc,scale=thetac,size=(assumptions['SA'][k],assumptions['MA'][j]))
+        #Sample uniform binary random matrix for generalists:
+        if 'GEN' in c.index:
+            p = assumptions['muc']/(M*assumptions['c1'])
+            c_mean = assumptions['muc']/M
+            c_var = assumptions['sigc']**2/M
+            c_mean_binary = assumptions['c0']+ assumptions['c1']*p
+            c_var_binary = assumptions['c1']**2 *p*(1-p)
+            c_mean_gamma = c_mean/c_mean_binary
+            c_var_gamma = (c_var - c_var_binary*(c_mean_gamma**2))/(c_var_binary + c_mean_binary**2)
+            thetac = c_var_gamma/c_mean_gamma
+            kc = c_mean_gamma**2/c_var_gamma
+            c.loc['GEN'] = (c.loc['GEN'].values + assumptions['c1']*BinaryRandomMatrix(assumptions['Sgen'],M,p))*np.random.gamma(kc,scale=thetac,size=(assumptions['Sgen'],M))
+
     elif assumptions['sampling'] == 'Uniform':
         #Initialize dataframe:
         c = pd.DataFrame(np.zeros((S,M)),columns=resource_index,index=consumer_index)
@@ -235,7 +270,6 @@ def MakeMatrices(assumptions):
         if 'GEN' in c.index:
             c_mean = assumptions['muc']/M
             c.loc['GEN'] = c_mean + (np.random.rand(assumptions['Sgen'],M)-0.5)*assumptions['b']
-    
     else:
         print('Invalid distribution choice. Valid choices are kind=Gaussian, kind=Binary, kind=Gamma, kind=Uniform.')
         return 'Error'
@@ -263,21 +297,21 @@ def MakeMatrices(assumptions):
                 p = pd.Series(np.ones(M)/M,index = DT.keys())
             #Sample from dirichlet
             DT.loc[type_name] = dirichlet(p/assumptions['sparsity'],size=MA)
-        
+
     return c, DT.T
 
 def MakeParams(assumptions):
     """
     Makes a dictionary of parameters, using MakeMatrices for the matrices, MakeInitialState
     for the resource supply point, and setting everything else to 1, except l which is zero.
-    
+
     Parameter values can be modified from 1 (or zero for l) by adding their name-value pairs
     to the assumptions dictionary.
     """
 
     c, D = MakeMatrices(assumptions)
-    N0,R0 = MakeInitialState(assumptions)
-    
+    N0,R0, M, T, S_tot, F = MakeInitialState(assumptions)
+
     if not isinstance(assumptions['food'],int) or not isinstance(assumptions['R0_food'],int):
         params=[{'c':c,
                 'm':1,
@@ -311,7 +345,7 @@ def MakeParams(assumptions):
                 'nreg':10,
                 'n':2
                 }
-            
+
         for item in ['m','w','g','l','tau','r','sigma_max','n','nreg']:
             if item in assumptions.keys():
                 params[item] = assumptions[item]
@@ -322,16 +356,16 @@ def MakeResourceDynamics(assumptions):
     """
     Construct resource dynamics. 'assumptions' must be a dictionary containing at least
     three entries:
-    
+
     response = {'type I', 'type II', 'type III'} specifies nonlinearity of growth law
-    
+
     regulation = {'independent','energy','mass'} allows microbes to adjust uptake
         rates to favor the most abundant accessible resources (measured either by
         energy or mass)
-    
+
     supply = {'off','external','self-renewing'} sets choice of
         intrinsic resource dynamics
-        
+
     Returns a function of N, R, and the model parameters, which itself returns the
         vector of resource rates of change dR/dt
     """
@@ -339,23 +373,23 @@ def MakeResourceDynamics(assumptions):
              'type II': lambda R,params: params['c']*R/(1+params['c']*R/params['sigma_max']),
              'type III': lambda R,params: (params['c']*R)**params['n']/(1+(params['c']*R)**params['n']/params['sigma_max'])
         }
-    
+
     u = {'independent': lambda x,params: 1.,
          'energy': lambda x,params: (((params['w']*x)**params['nreg']).T
                                       /np.sum((params['w']*x)**params['nreg'],axis=1)).T,
          'mass': lambda x,params: ((x**params['nreg']).T/np.sum(x**params['nreg'],axis=1)).T
         }
-    
+
     h = {'off': lambda R,params: 0.,
          'external': lambda R,params: (params['R0']-R)/params['tau'],
          'self-renewing': lambda R,params: params['r']*R*(params['R0']-R),
          'predator': lambda R,params: params['r']*R*(params['R0']-R)-params['u']*R
     }
-    
+
     J_in = lambda R,params: (u[assumptions['regulation']](params['c']*R,params)
                              *params['w']*sigma[assumptions['response']](R,params))
     J_out = lambda R,params: (params['l']*J_in(R,params)).dot(params['D'].T)
-    
+
     return lambda N,R,params: (h[assumptions['supply']](R,params)
                                -(J_in(R,params)/params['w']).T.dot(N)
                                +(J_out(R,params)/params['w']).T.dot(N))
@@ -364,16 +398,16 @@ def MakeConsumerDynamics(assumptions):
     """
     Construct resource dynamics. 'assumptions' must be a dictionary containing at least
     three entries:
-    
+
     response = {'type I', 'type II', 'type III'} specifies nonlinearity of growth law
-    
+
     regulation = {'independent','energy','mass'} allows microbes to adjust uptake
         rates to favor the most abundant accessible resources (measured either by
         energy or mass)
-    
+
     supply = {'off','external','self-renewing','predator'} sets choice of
         intrinsic resource dynamics
-        
+
     Returns a function of N, R, and the model parameters, which itself returns the
         vector of consumer rates of change dN/dt
     """
@@ -381,40 +415,40 @@ def MakeConsumerDynamics(assumptions):
              'type II': lambda R,params: params['c']*R/(1+params['c']*R/params['sigma_max']),
              'type III': lambda R,params: (params['c']*R)**params['n']/(1+(params['c']*R)**params['n']/params['sigma_max'])
             }
-    
+
     u = {'independent': lambda x,params: 1.,
          'energy': lambda x,params: (((params['w']*x)**params['nreg']).T
                                       /np.sum((params['w']*x)**params['nreg'],axis=1)).T,
          'mass': lambda x,params: ((x**params['nreg']).T/np.sum(x**params['nreg'],axis=1)).T
         }
-    
+
     J_in = lambda R,params: (u[assumptions['regulation']](params['c']*R,params)
                              *params['w']*sigma[assumptions['response']](R,params))
     J_growth = lambda R,params: (1-params['l'])*J_in(R,params)
-    
+
     return lambda N,R,params: params['g']*N*(np.sum(J_growth(R,params),axis=1)-params['m'])
 
 def MixPairs(plate1, plate2, R0_mix = 'Com1'):
     """
     Perform "community coalescence" by mixing pairs of communities.
-    
+
     plate1, plate2 = plates containing communities to be mixed
-    
+
     R0_mix = {'Com1', 'Com2', matrix of dimension Mxn_wells1xn_wells2} specifies
         the resource profile to be supplied to the mixture
-    
+
     Returns:
-    plate_mixed = plate containing 50/50 mixtures of all pairs of communities 
+    plate_mixed = plate containing 50/50 mixtures of all pairs of communities
         from plate1 and plate2.
     N_1, N_2 = compositions of original communities
     N_sum = initial compositions of mixed communities
     """
     assert np.all(plate1.N.index == plate2.N.index), "Communities must have the same species names."
     assert np.all(plate1.R.index == plate2.R.index), "Communities must have the same resource names."
-    
+
     n_wells1 = plate1.n_wells
     n_wells2 = plate2.n_wells
-    
+
     #Prepare initial conditions:
     N0_mix = np.zeros((plate1.S,n_wells1*n_wells2))
     N0_mix[:,:n_wells1] = plate1.N
@@ -428,7 +462,7 @@ def MixPairs(plate1, plate2, R0_mix = 'Com1'):
             R0_mix = np.dot(R0vec,np.ones((1,n_wells1*n_wells2)))
     else:
         assert np.shape(R0_mix) == (plate1.M,n_wells1*n_wells2), "Valid R0_mix values are 'Com1', 'Com2', or a resource matrix of dimension M x (n_wells1*n_wells2)."
-        
+
     #Make mixing matrix
     f_mix = np.zeros((n_wells1*n_wells2,n_wells1*n_wells2))
     f1 = np.zeros((n_wells1*n_wells2,n_wells1))
@@ -441,17 +475,17 @@ def MixPairs(plate1, plate2, R0_mix = 'Com1'):
         f2[k*n_wells1:n_wells1+k*n_wells1,:] = m2
         f_mix[k*n_wells1:n_wells1+k*n_wells1,:n_wells1] = 0.5*m1
         f_mix[k*n_wells1:n_wells1+k*n_wells1,n_wells1:n_wells1+n_wells2] = 0.5*m2
-        
-    #Compute initial community compositions and sum    
+
+    #Compute initial community compositions and sum
     N_1 = np.dot(plate1.N,f1.T)
     N_2 = np.dot(plate2.N,f2.T)
     N_sum = 0.5*(N_1+N_2)
-        
+
     #Initialize new community and apply mixing
     plate_mixed = plate1.copy()
     plate_mixed.Reset([N0_mix,R0_mix])
     plate_mixed.Passage(f_mix,include_resource=False)
-    
+
     return plate_mixed, N_1, N_2, N_sum
 
 def SimpleDilution(plate, f0 = 1e-3):
@@ -464,14 +498,13 @@ def SimpleDilution(plate, f0 = 1e-3):
 def BinaryRandomMatrix(a,b,p):
     """
     Construct binary random matrix.
-    
+
     a, b = matrix dimensions
-    
+
     p = probability that element equals 1 (otherwise 0)
     """
     r = np.random.rand(a,b)
     m = np.zeros((a,b))
     m[r<p] = 1.0
-    
-    return m
 
+    return m
