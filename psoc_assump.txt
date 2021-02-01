@@ -1,0 +1,10 @@
+{'n_families' :1,
+'n_species' : 10,
+'n_classes' : 1,
+'n_resources' : 10,
+'maintenance' : 0.0,
+'tau' : 1.0,
+'nspecies_sampled' :4,
+'scale_set' : 1e06,
+'iterations' : 40,
+'prop_times' : [10,100,1000,2000,5000,10000,20000,30000,50000,100000]}
